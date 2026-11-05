@@ -21,4 +21,5 @@ runs:
       env:
         cmd: "--allow-no-files --diff ${{ case(inputs.autofix == 'true', '--excludes .github', '') }}"
         pkg: "${{ format('@kjanat/fmt@{0}', inputs.version) }}"
+        NPM_CONFIG_TRUST_POLICY_IGNORE_AFTER: 0
       run: npx -y "${pkg}" ${{ env.cmd }} # actionlint:ignore script-interpolation
