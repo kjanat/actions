@@ -1,15 +1,35 @@
 name: kprint fmt
 description: format yo' shit
 branding:
-  icon: umbrella
-  color: green
+  { icon: umbrella, color: green }
 inputs:
   autofix:
-    description: "autofix.ci compatible (does not fmt .github)"
-    default: true
+    description: "autofix.ci compatible (does not fmt '.github/')"
+    default: ${{ case(github.workflow == 'autofix.ci', 'true', 'false') }}
+    type: boolean
+    links:
+      - https://autofix.ci/setup
+      - https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#github-context:~:text=has%20different%20privileges.-,github.workflow,-string
   version:
-    description: "version of npm:@kjanat/fmt to run"
+    description: "version of 'https://npm.im/@kjanat/fmt' to run"
+    examples:
+      - "0"
+      - "0.63"
+      - "0.64.1"
+      - latest
     default: "latest"
+    type: string
+    links:
+      - https://www.npmjs.com/package/@kjanat/fmt?activeTab=versions
+  nightly:
+    description: "run the nighly version of the formatter"
+    default: false
+    type: boolean
+    links:
+      - https://www.npmjs.com/package/@kjanat/fmt/v/nightly
+  extraArgs:
+    description: extra arguments to add
+    default: null
 
 runs:
   # For more on composite actions, see:
@@ -18,8 +38,15 @@ runs:
   steps:
     - id: greet
       shell: bash
+      name: >-
+        Run kprint
+        ${{ case(
+        inputs.nightly == 'true', 'nightly',
+        inputs.version == 'latest', 'latest',
+        format('v{0}', inputs.version)
+        )}}
       env:
         cmd: "--allow-no-files --diff ${{ case(inputs.autofix == 'true', '--excludes .github', '') }}"
-        pkg: "${{ format('@kjanat/fmt@{0}', inputs.version) }}"
+        pkg: "${{ format('@kjanat/fmt@{0}', case(inputs.nightly == 'true', 'nightly', inputs.version)) }}"
         NPM_CONFIG_TRUST_POLICY_IGNORE_AFTER: 0
-      run: npx -y "${pkg}" ${{ env.cmd }}
+      run: npx -y "${pkg}" ${{ env.cmd }} ${{ inputs.extraArgs }} # ignore[script-interpolation] -- not my issue
