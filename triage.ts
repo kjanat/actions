@@ -311,17 +311,23 @@ export async function runAction() {
 }
 
 if (import.meta.main) {
-  try {
-    const args = Deno.args.filter((arg) => arg !== "--apply");
-    if (args.length !== 1) throw new Error("Usage: triage.ts 'owner/repo#123' [--apply]");
-    await main({
-      target: args[0],
-      apply: Deno.args.includes("--apply"),
-      apiKey: Deno.env.get("TYPESAFE_API_KEY"),
-      labels: Deno.env.get("TRIAGE_LABELS"),
+  const { arg, cli, command, flag } = await import("jsr:@kjanat/dreamcli@^5");
+  const triage = command("triage")
+    .description("Classify a GitHub issue or pull request.")
+    .arg("target", arg.string().describe("GitHub issue or pull request URL or owner/repo#number."))
+    .flag("apply", flag.boolean().describe("Write the suggested changes to GitHub."))
+    .action(async ({ args, flags, out }) => {
+      try {
+        await main({
+          target: args.target,
+          apply: flags.apply ?? false,
+          apiKey: Deno.env.get("TYPESAFE_API_KEY"),
+          labels: Deno.env.get("TRIAGE_LABELS"),
+        });
+      } catch (error) {
+        out.error(error instanceof Error ? error.message : String(error));
+        out.setExitCode(1);
+      }
     });
-  } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
-    Deno.exit(1);
-  }
+  await cli("triage").default(triage).run();
 }
