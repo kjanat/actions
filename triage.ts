@@ -1,6 +1,7 @@
 #!/usr/bin/env -S deno run --no-config --node-modules-dir=none --allow-env --allow-net=api.github.com,api.typesafe.ai --allow-run=gh
 // Local: ./triage.ts 'owner/repo#123' [--apply]
 // Both modes need TYPESAFE_API_KEY. The action supplies GITHUB_TOKEN.
+import { arg, cli, CLIError, command, createOutput, flag, type Out } from "jsr:@kjanat/dreamcli@^5";
 import { Octokit } from "npm:@octokit/rest@22.0.1";
 import type { Question, ResultFor } from "npm:@typesafe-ai/sdk@0.7.0";
 import { choice, noul, TypeSafeClient } from "npm:@typesafe-ai/sdk@0.7.0";
@@ -14,6 +15,7 @@ type Field = { __typename: string; name: string; fullDatabaseId: string | number
 type Value = { issue_field_id: number; issue_field_name: string; value: string | number | null };
 type Update = { field_id: number; name: string; value: string };
 type TriageOptions = { target: string; apply: boolean; token?: string; apiKey?: string; labels?: string };
+type TriageOutput = Pick<Out, "json" | "warn">;
 
 function parseTarget(input: string): Target {
   const url = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/(?:issues|pull)\/(\d+)\/?(?:[?#].*)?$/.exec(input);
@@ -51,7 +53,7 @@ type FieldPage = { repository: { issueFields: {
 } | null } };
 
 // Some repositories expose labels but no issue metadata to this token.
-async function optionalCatalog<T>(name: string, read: () => Promise<T[]>): Promise<T[]> {
+async function optionalCatalog<T>(out: TriageOutput, name: string, read: () => Promise<T[]>): Promise<T[]> {
   try {
     return await read();
   } catch (error) {
@@ -60,7 +62,7 @@ async function optionalCatalog<T>(name: string, read: () => Promise<T[]>): Promi
       (e.status === 403 && /resource not accessible/i.test(e.message ?? "")) ||
       (e.errors?.length && e.errors.every((v) => ["FORBIDDEN", "NOT_FOUND"].includes(v.type ?? "")));
     if (!unavailable) throw error;
-    console.warn(`Skipping ${name}: unavailable to this repository or token.`);
+    out.warn(`Skipping ${name}: unavailable to this repository or token.`);
     return [];
   }
 }
@@ -153,7 +155,7 @@ async function ensureFallback(gh: Octokit, owner: string, repo: string) {
   }
 }
 
-async function main(options: TriageOptions) {
+async function main(options: TriageOptions, out: TriageOutput) {
   const { apply } = options;
   const target = parseTarget(options.target);
   const apiKey = options.apiKey?.trim();
@@ -183,13 +185,13 @@ async function main(options: TriageOptions) {
     paths = res.data.map((f) => f.filename);
   } else {
     if (!existingType(item)) {
-      const enabled = await optionalCatalog("issue types", async () => {
+      const enabled = await optionalCatalog(out, "issue types", async () => {
         const res = await gh.request("GET /repos/{owner}/{repo}/issue-types", { owner, repo });
         return (res.data as (Option & { is_enabled: boolean })[]).filter((t) => t.is_enabled);
       });
       types.push(...enabled);
     }
-    fields = await optionalCatalog("issue fields", () => repositoryFields(gh, target));
+    fields = await optionalCatalog(out, "issue fields", () => repositoryFields(gh, target));
     if (fields.length) values = await fieldValues(gh, target);
   }
 
@@ -251,13 +253,13 @@ async function main(options: TriageOptions) {
   const start = dateValue("start date");
   const end = dateValue("target date");
   if (typeof start === "string" && typeof end === "string" && start > end) {
-    console.warn("Skipping conflicting schedule dates: start follows target.");
+    out.warn("Skipping conflicting schedule dates: start follows target.");
     updates = updates.filter((u) => !["start date", "target date"].includes(lower(u.name)));
   }
 
-  console.log(JSON.stringify({ mode: apply ? "apply" : "preview", url: item.html_url,
+  out.json({ mode: apply ? "apply" : "preview", url: item.html_url,
     addLabels: add, removeLabels: removeOther ? [other] : [], issueType: type,
-    fields: Object.fromEntries(updates.map((u) => [u.name, u.value])) }, null, 2));
+    fields: Object.fromEntries(updates.map((u) => [u.name, u.value])) });
   if (!apply) return;
   if (add.some((name) => lower(name) === fallback) && !catalog.some((l) => lower(l.name) === fallback)) {
     await ensureFallback(gh, owner, repo);
@@ -300,6 +302,11 @@ export async function runAction() {
 
   const apply = input("apply") ?? "true";
   if (apply !== "true" && apply !== "false") throw new Error("The apply input must be true or false.");
+  const encoder = new TextEncoder();
+  const out = createOutput({
+    stdout: (text) => Deno.stdout.writeSync(encoder.encode(text)),
+    stderr: (text) => Deno.stderr.writeSync(encoder.encode(text)),
+  });
   await main({
     target: input("target") || Deno.env.get("TRIAGE_EVENT_TARGET") || "",
     apply: apply === "true",
@@ -307,27 +314,26 @@ export async function runAction() {
       Deno.env.get("TRIAGE_CONTEXT_TOKEN") || "",
     apiKey: input("typesafe-api-key") || Deno.env.get("TYPESAFE_API_KEY"),
     labels: input("labels"),
-  });
+  }, out);
 }
 
-if (import.meta.main) {
-  const { arg, cli, command, flag } = await import("jsr:@kjanat/dreamcli@^5");
-  const triage = command("triage")
-    .description("Classify a GitHub issue or pull request.")
-    .arg("target", arg.string().describe("GitHub issue or pull request URL or owner/repo#number."))
-    .flag("apply", flag.boolean().describe("Write the suggested changes to GitHub."))
-    .action(async ({ args, flags, out }) => {
-      try {
-        await main({
-          target: args.target,
-          apply: flags.apply ?? false,
-          apiKey: Deno.env.get("TYPESAFE_API_KEY"),
-          labels: Deno.env.get("TRIAGE_LABELS"),
-        });
-      } catch (error) {
-        out.error(error instanceof Error ? error.message : String(error));
-        out.setExitCode(1);
-      }
-    });
-  await cli("triage").default(triage).run();
-}
+const triage = command("triage")
+  .description("Classify a GitHub issue or pull request.")
+  .arg("target", arg.string().describe("GitHub issue or pull request URL or owner/repo#number."))
+  .flag("apply", flag.boolean().default(false).describe("Write the suggested changes to GitHub."))
+  .action(async ({ args, flags, out }) => {
+    try {
+      await main({
+        target: args.target,
+        apply: flags.apply,
+        apiKey: Deno.env.get("TYPESAFE_API_KEY"),
+        labels: Deno.env.get("TRIAGE_LABELS"),
+      }, out);
+    } catch (error) {
+      throw new CLIError(error instanceof Error ? error.message : String(error), { code: "TRIAGE_FAILED" });
+    }
+  });
+
+export const program = cli("triage").default(triage);
+
+if (import.meta.main) await program.run();
