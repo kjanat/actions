@@ -26,7 +26,7 @@ function parseTarget(input: string): Target {
 async function githubToken() {
   if (Deno.env.get("GITHUB_ACTIONS") === "true") {
     const token = Deno.env.get("GITHUB_TOKEN");
-    if (!token) throw new Error("Pass a GitHub token through the action's token input.");
+    if (!token) throw new Error("Set the token input or supply GITHUB_TOKEN or GH_TOKEN in the caller's environment.");
     return token;
   }
   const result = await new Deno.Command("gh", {

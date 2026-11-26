@@ -3,11 +3,9 @@ description: Classify issues and pull requests and optionally apply the suggeste
 
 inputs:
   typesafe-api-key:
-    description: API key for the TypeSafe classifier.
-    required: true
+    description: API key for the TypeSafe classifier. Defaults to the caller's TYPESAFE_API_KEY environment variable.
   token:
-    description: GitHub token for the target repository.
-    default: ${{ github.token }}
+    description: GitHub token for the target repository. Falls back to the caller's GITHUB_TOKEN or GH_TOKEN, then github.token.
   target:
     description: GitHub issue or pull request URL or owner/repo#number. Defaults to the triggering item.
   labels:
@@ -26,14 +24,14 @@ runs:
     - name: Triage issue or pull request
       shell: bash
       env:
-        GITHUB_TOKEN: ${{ inputs.token }}
-        TYPESAFE_API_KEY: ${{ inputs.typesafe-api-key }}
+        GITHUB_TOKEN: ${{ inputs.token || env.GITHUB_TOKEN || env.GH_TOKEN || github.token }}
+        TYPESAFE_API_KEY: ${{ inputs.typesafe-api-key || env.TYPESAFE_API_KEY }}
         TRIAGE_LABELS: ${{ inputs.labels }}
         TRIAGE_TARGET: ${{ inputs.target || format('{0}#{1}', github.repository, github.event.issue.number || github.event.pull_request.number) }}
         TRIAGE_APPLY: ${{ inputs.apply }}
       run: |
         if [[ -z "$TYPESAFE_API_KEY" ]]; then
-          echo 'Pass the TypeSafe API key through the typesafe-api-key input.' >&2
+          echo 'Set the typesafe-api-key input or the TYPESAFE_API_KEY environment variable.' >&2
           exit 1
         fi
 
