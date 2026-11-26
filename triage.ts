@@ -157,18 +157,17 @@ async function ensureFallback(gh: Octokit, owner: string, repo: string) {
   }
 }
 
-async function main() {
-  const args = Deno.args.filter((arg) => arg !== "--apply");
-  if (args.length !== 1) throw new Error("Usage: triage.ts 'owner/repo#123' [--apply]");
-  const apply = Deno.args.includes("--apply");
-  const target = parseTarget(args[0]);
+export async function main(input: string, apply: boolean) {
+  const target = parseTarget(input);
+  const apiKey = Deno.env.get("TYPESAFE_API_KEY")?.trim();
+  if (!apiKey) throw new Error("Set the typesafe-api-key input or the TYPESAFE_API_KEY environment variable.");
   const { owner, repo, issue_number } = target;
   const allowed = labelAllowlist();
   const gh = new Octokit({ auth: await githubToken() });
   gh.hook.before("request", (request) => {
     request.headers["x-github-api-version"] = "2026-03-10";
   });
-  const ai = new TypeSafeClient({ compression: false });
+  const ai = new TypeSafeClient({ apiKey, compression: false });
   const getItem = async () => (await gh.rest.issues.get(target)).data;
   const [item, catalog] = await Promise.all([
     getItem(), gh.paginate(gh.rest.issues.listLabelsForRepo, { owner, repo, per_page: 100 }),
@@ -284,7 +283,9 @@ async function main() {
 
 if (import.meta.main) {
   try {
-    await main();
+    const args = Deno.args.filter((arg) => arg !== "--apply");
+    if (args.length !== 1) throw new Error("Usage: triage.ts 'owner/repo#123' [--apply]");
+    await main(args[0], Deno.args.includes("--apply"));
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     Deno.exit(1);
