@@ -1,6 +1,6 @@
 # GitHub triage
 
-`kjanat/actions@triage` classifies issues and pull requests with TypeSafe. It uses the target repository's label catalog and, for issues, can also suggest an issue type, priority, effort, start date, and target date when those fields are available. It prints the proposed changes as JSON. Set `apply: "true"` to apply them.
+`kjanat/actions@triage` classifies issues and pull requests with TypeSafe. It uses the target repository's label catalog and, for issues, can also suggest an issue type, priority, effort, start date, and target date when those fields are available. It prints the proposed changes as JSON and applies them by default. Set `apply: "false"` to preview them.
 
 The action sends excerpts of the title, body, and pull request file paths to TypeSafe. It runs its bundled script and needs no checkout step in the caller workflow.
 
@@ -40,7 +40,6 @@ jobs:
           typesafe-api-key: ${{ secrets.TYPESAFE_API_KEY }}
           labels: ${{ vars.TRIAGE_LABELS }}
           target: ${{ inputs.number && format('{0}#{1}', github.repository, inputs.number) || '' }}
-          apply: "true"
 ```
 
 | Input | Default | Purpose |
@@ -49,7 +48,7 @@ jobs:
 | `token` | `${{ env.GITHUB_TOKEN \|\| env.GH_TOKEN \|\| github.token }}` | A nonempty input takes precedence. Override when the target or its issue metadata requires a different token. |
 | `target` | Issue or PR that triggered the workflow | Accepts `owner/repo#123` or a GitHub issue or PR URL. Supply it explicitly for manual or scheduled runs. |
 | `labels` | All existing labels are candidates | Provide a JSON array such as `["bug","documentation"]` to limit classification to topical labels. The `other` fallback is handled separately. |
-| `apply` | `"false"` | Set to `"true"` to write to GitHub. Preview still calls TypeSafe. |
+| `apply` | `"true"` | Set to `"false"` to preview. Preview still calls TypeSafe. |
 
 ## TypeSafe credential
 

@@ -11,8 +11,8 @@ inputs:
   labels:
     description: Optional JSON array of existing labels the classifier may consider.
   apply:
-    description: Set to true to write the suggested changes to GitHub. Defaults to preview.
-    default: "false"
+    description: Write the suggested changes to GitHub. Set to false to preview them.
+    default: "true"
 
 runs:
   using: composite
