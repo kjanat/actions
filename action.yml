@@ -19,18 +19,15 @@ runs:
   steps:
     - name: Set up Deno
       uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
-      with:
-        deno-version: v2.x
+      with: { deno-version: v2.x }
     - name: Set up Actions Shells
       uses: kjanat/actions-shells@v0
     - name: Triage issue or pull request
       shell: actions-shell deno {0}
       env:
-        GITHUB_TOKEN: ${{ inputs.token || env.GITHUB_TOKEN || env.GH_TOKEN || github.token }}
-        TYPESAFE_API_KEY: ${{ inputs.typesafe-api-key || env.TYPESAFE_API_KEY }}
-        TRIAGE_LABELS: ${{ inputs.labels }}
-        TRIAGE_TARGET: ${{ inputs.target || format('{0}#{1}', github.repository, github.event.issue.number || github.event.pull_request.number) }}
-        TRIAGE_APPLY: ${{ inputs.apply }}
+        TRIAGE_INPUTS: ${{ toJSON(inputs) }}
+        TRIAGE_EVENT_TARGET: ${{ format('{0}#{1}', github.repository, github.event.issue.number || github.event.pull_request.number) }}
+        TRIAGE_CONTEXT_TOKEN: ${{ github.token }}
       run: |
         import { join } from "node:path";
         import { pathToFileURL } from "node:url";
@@ -38,12 +35,8 @@ runs:
         try {
           const actionPath = Deno.env.get("GITHUB_ACTION_PATH");
           if (!actionPath) throw new Error("GITHUB_ACTION_PATH is missing.");
-          const { main } = await import(pathToFileURL(join(actionPath, "triage.ts")).href);
-          const apply = Deno.env.get("TRIAGE_APPLY");
-          if (apply !== "true" && apply !== "false") {
-            throw new Error("The apply input must be true or false.");
-          }
-          await main(Deno.env.get("TRIAGE_TARGET") ?? "", apply === "true");
+          const { runAction } = await import(pathToFileURL(join(actionPath, "triage.ts")).href);
+          await runAction();
         } catch (error) {
           console.error(error instanceof Error ? error.message : String(error));
           Deno.exit(1);

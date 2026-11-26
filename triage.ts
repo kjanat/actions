@@ -13,6 +13,7 @@ type Target = { owner: string; repo: string; issue_number: number };
 type Field = { __typename: string; name: string; fullDatabaseId: string | number; options?: Option[] };
 type Value = { issue_field_id: number; issue_field_name: string; value: string | number | null };
 type Update = { field_id: number; name: string; value: string };
+type TriageOptions = { target: string; apply: boolean; token?: string; apiKey?: string; labels?: string };
 
 function parseTarget(input: string): Target {
   const url = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/(?:issues|pull)\/(\d+)\/?(?:[?#].*)?$/.exec(input);
@@ -24,11 +25,7 @@ function parseTarget(input: string): Target {
 }
 
 async function githubToken() {
-  if (Deno.env.get("GITHUB_ACTIONS") === "true") {
-    const token = Deno.env.get("GITHUB_TOKEN");
-    if (!token) throw new Error("Set the token input or supply GITHUB_TOKEN or GH_TOKEN in the caller's environment.");
-    return token;
-  }
+  if (Deno.env.get("GITHUB_ACTIONS") === "true") return Deno.env.get("GITHUB_TOKEN");
   const result = await new Deno.Command("gh", {
     args: ["auth", "token", "--hostname", "github.com"], stdout: "piped", stderr: "inherit",
   }).output();
@@ -98,8 +95,7 @@ async function fieldValues(gh: Octokit, target: Target) {
   }
 }
 
-function labelAllowlist(): Set<string> | undefined {
-  const raw = Deno.env.get("TRIAGE_LABELS");
+function labelAllowlist(raw: string | undefined): Set<string> | undefined {
   if (!raw) return;
   const names: unknown = JSON.parse(raw);
   if (!Array.isArray(names) || !names.every((name) => typeof name === "string")) {
@@ -157,13 +153,16 @@ async function ensureFallback(gh: Octokit, owner: string, repo: string) {
   }
 }
 
-export async function main(input: string, apply: boolean) {
-  const target = parseTarget(input);
-  const apiKey = Deno.env.get("TYPESAFE_API_KEY")?.trim();
+async function main(options: TriageOptions) {
+  const { apply } = options;
+  const target = parseTarget(options.target);
+  const apiKey = options.apiKey?.trim();
   if (!apiKey) throw new Error("Set the typesafe-api-key input or the TYPESAFE_API_KEY environment variable.");
   const { owner, repo, issue_number } = target;
-  const allowed = labelAllowlist();
-  const gh = new Octokit({ auth: await githubToken() });
+  const allowed = labelAllowlist(options.labels);
+  const token = options.token ?? await githubToken();
+  if (!token) throw new Error("Set the token input or supply GITHUB_TOKEN or GH_TOKEN in the caller's environment.");
+  const gh = new Octokit({ auth: token });
   gh.hook.before("request", (request) => {
     request.headers["x-github-api-version"] = "2026-03-10";
   });
@@ -281,11 +280,46 @@ export async function main(input: string, apply: boolean) {
   }
 }
 
+export async function runAction() {
+  const raw = Deno.env.get("TRIAGE_INPUTS");
+  let inputs: unknown;
+  try {
+    inputs = JSON.parse(raw ?? "");
+  } catch {
+    throw new Error("TRIAGE_INPUTS must contain a JSON object.");
+  }
+  if (typeof inputs !== "object" || inputs === null || Array.isArray(inputs)) {
+    throw new Error("TRIAGE_INPUTS must contain a JSON object.");
+  }
+  const actionInputs = inputs;
+  const input = (name: string): string | undefined => {
+    const value: unknown = Object.hasOwn(actionInputs, name) ? Reflect.get(actionInputs, name) : undefined;
+    if (value === undefined || typeof value === "string") return value;
+    throw new Error(`The ${name} input must be a string.`);
+  };
+
+  const apply = input("apply") ?? "true";
+  if (apply !== "true" && apply !== "false") throw new Error("The apply input must be true or false.");
+  await main({
+    target: input("target") || Deno.env.get("TRIAGE_EVENT_TARGET") || "",
+    apply: apply === "true",
+    token: input("token") || Deno.env.get("GITHUB_TOKEN") || Deno.env.get("GH_TOKEN") ||
+      Deno.env.get("TRIAGE_CONTEXT_TOKEN") || "",
+    apiKey: input("typesafe-api-key") || Deno.env.get("TYPESAFE_API_KEY"),
+    labels: input("labels"),
+  });
+}
+
 if (import.meta.main) {
   try {
     const args = Deno.args.filter((arg) => arg !== "--apply");
     if (args.length !== 1) throw new Error("Usage: triage.ts 'owner/repo#123' [--apply]");
-    await main(args[0], Deno.args.includes("--apply"));
+    await main({
+      target: args[0],
+      apply: Deno.args.includes("--apply"),
+      apiKey: Deno.env.get("TYPESAFE_API_KEY"),
+      labels: Deno.env.get("TRIAGE_LABELS"),
+    });
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     Deno.exit(1);
