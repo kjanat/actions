@@ -46,7 +46,7 @@ jobs:
 | Input | Default | Purpose |
 | --- | --- | --- |
 | `typesafe-api-key` | `${{ env.TYPESAFE_API_KEY }}` | Credential for the TypeSafe classifier. A nonempty input takes precedence. |
-| `token` | `${{ env.GITHUB_TOKEN || env.GH_TOKEN || github.token }}` | A nonempty input takes precedence. Override when the target or its issue metadata requires a different token. |
+| `token` | `${{ env.GITHUB_TOKEN \|\| env.GH_TOKEN \|\| github.token }}` | A nonempty input takes precedence. Override when the target or its issue metadata requires a different token. |
 | `target` | Issue or PR that triggered the workflow | Accepts `owner/repo#123` or a GitHub issue or PR URL. Supply it explicitly for manual or scheduled runs. |
 | `labels` | All existing labels are candidates | Provide a JSON array such as `["bug","documentation"]` to limit classification to topical labels. The `other` fallback is handled separately. |
 | `apply` | `"false"` | Set to `"true"` to write to GitHub. Preview still calls TypeSafe. |
